@@ -1,6 +1,5 @@
 #include "shell.h"
 
-// Global variables
 char *args[MAXLINE/2 + 1];
 char *history[HISTORY_SIZE];
 int history_count = 0;
@@ -16,12 +15,10 @@ int main(int argc, char **argv) {
 int interactiveShell() {
     bool should_run = true;
     char *line = NULL;
-    
     while (should_run) {
         printf(PROMPT);
         fflush(stdout);
         int n = fetchline(&line);
-        
         if (n == -1 || equal(line, "exit")) {
             should_run = false;
             continue;
@@ -31,8 +28,6 @@ int interactiveShell() {
         }
         processLine(line);
     }
-    
-    // Cleanup history
     for (int i = 0; i < history_count; i++) {
         free(history[i]);
     }
@@ -45,153 +40,182 @@ void processLine(char *line) {
         executeHistoryCommand();
         return;
     }
-    
     if (equal(line, "ascii")) {
         ascii_art();
         addToHistory(line);
         return;
     }
-    
     int arg_count = tokenize(line, args);
     if (arg_count == 0) return;
-
     int start = 0;
     while (start < arg_count && args[start] != NULL) {
-        Command cmd = {0};
-        parse(args, start, &cmd);
+        Command cmd;
+        memset(&cmd, 0, sizeof(cmd));
+        int stopIndex = parse(args, start, &cmd);
         doCommand(args, &cmd);
-        
-        // Move to next command
-        start = cmd.end + 1;
-        if (start < arg_count && args[start] != NULL && equal(args[start], ";")) {
-            start++;
-        }
+        start = stopIndex + 1;
     }
-
     addToHistory(line);
     cleanup(args, arg_count);
 }
 
 int tokenize(char *line, char *args[]) {
-    char *token;
-    char *saveptr;
+    char *token, *saveptr;
     int count = 0;
     char *line_copy = strdup(line);
-    
     token = strtok_r(line_copy, " \t", &saveptr);
     while (token != NULL && count < MAXLINE/2) {
-        if (equal(token, "|") || equal(token, "&") || equal(token, ";")) {
-            args[count++] = strdup(token);
-        } else {
-            args[count++] = strdup(token);
-        }
+        args[count++] = strdup(token);
         token = strtok_r(NULL, " \t", &saveptr);
     }
-    
     args[count] = NULL;
     free(line_copy);
     return count;
 }
 
-void parse(char *args[], int start, Command *cmd) {
+int parse(char *args[], int start, Command *cmd) {
     cmd->start = start;
-    cmd->waitFor = true;
+    cmd->end = start;
     cmd->has_pipe = false;
+    cmd->background = false;
+    cmd->waitFor = true;
     cmd->pipe_pos = -1;
+    cmd->pipe_start = -1;
+    cmd->pipe_end = -1;
     cmd->input_file = NULL;
     cmd->output_file = NULL;
-    
     int i = start;
     while (args[i] != NULL) {
         if (equal(args[i], "|")) {
             cmd->has_pipe = true;
             cmd->pipe_pos = i;
             args[i] = NULL;
-            cmd->end = i;
-            return;
+            i++;
+            cmd->pipe_start = i;
+            while (args[i] != NULL && !equal(args[i], "&") && !equal(args[i], ";")) {
+                i++;
+            }
+            cmd->pipe_end = i - 1;
+            cmd->end = i - 1;
+            return i - 1;
         }
-        
         if (equal(args[i], "&")) {
             cmd->background = true;
+            cmd->waitFor = false;
             args[i] = NULL;
             cmd->end = i - 1;
-            cmd->waitFor = false;
-            return;
+            return i;
         }
-        
         if (equal(args[i], ";")) {
             args[i] = NULL;
             cmd->end = i - 1;
-            cmd->waitFor = true;
-            return;
+            return i;
         }
-        
         if (equal(args[i], "<")) {
             args[i] = NULL;
             cmd->input_file = args[i + 1];
             i++;
-            continue;
-        }
-        
-        if (equal(args[i], ">")) {
+        } else if (equal(args[i], ">")) {
             args[i] = NULL;
             cmd->output_file = args[i + 1];
             i++;
-            continue;
         }
-        
         i++;
     }
     cmd->end = i - 1;
+    return i - 1;
 }
 
 void doCommand(char *args[], Command *cmd) {
     if (cmd->has_pipe) {
         int pipefd[2];
-        
         if (pipe(pipefd) == -1) {
             perror("pipe failed");
             return;
         }
-        
-        // First process
         pid_t pid1 = fork();
-        if (pid1 == 0) {
-            dup2(pipefd[1], STDOUT_FILENO);
+        if (pid1 < 0) {
+            perror("fork failed");
             close(pipefd[0]);
             close(pipefd[1]);
-            
-            execvp(args[cmd->start], &args[cmd->start]);
+            return;
+        }
+        if (pid1 == 0) {
+            close(pipefd[0]);
+            dup2(pipefd[1], STDOUT_FILENO);
+            close(pipefd[1]);
+            if (cmd->input_file) {
+                int fd = open(cmd->input_file, O_RDONLY);
+                if (fd < 0) {
+                    perror("Input file open failed");
+                    exit(1);
+                }
+                dup2(fd, STDIN_FILENO);
+                close(fd);
+            }
+            char *cmd1_args[MAXLINE/2 + 1];
+            int idx = 0;
+            for (int k = cmd->start; k < cmd->pipe_pos; k++) {
+                cmd1_args[idx++] = args[k];
+            }
+            cmd1_args[idx] = NULL;
+            execvp(cmd1_args[0], cmd1_args);
             perror("First command failed");
             exit(1);
         }
-        
-        // Second process
         pid_t pid2 = fork();
-        if (pid2 == 0) {
-            dup2(pipefd[0], STDIN_FILENO);
+        if (pid2 < 0) {
+            perror("fork failed");
             close(pipefd[0]);
             close(pipefd[1]);
-            
-            execvp(args[cmd->pipe_pos + 1], &args[cmd->pipe_pos + 1]);
+            return;
+        }
+        if (pid2 == 0) {
+            close(pipefd[1]);
+            dup2(pipefd[0], STDIN_FILENO);
+            close(pipefd[0]);
+            if (cmd->output_file) {
+                int fd = open(cmd->output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                if (fd < 0) {
+                    perror("Output file open failed");
+                    exit(1);
+                }
+                dup2(fd, STDOUT_FILENO);
+                close(fd);
+            }
+            char *cmd2_args[MAXLINE/2 + 1];
+            int idx = 0;
+            for (int k = cmd->pipe_start; k <= cmd->pipe_end; k++) {
+                cmd2_args[idx++] = args[k];
+            }
+            cmd2_args[idx] = NULL;
+            execvp(cmd2_args[0], cmd2_args);
             perror("Second command failed");
             exit(1);
         }
-        
         close(pipefd[0]);
         close(pipefd[1]);
-        
-        waitpid(pid1, NULL, 0);
-        waitpid(pid2, NULL, 0);
+        if (cmd->waitFor) {
+            waitpid(pid1, NULL, 0);
+            waitpid(pid2, NULL, 0);
+        }
     } else {
         pid_t pid = fork();
-        
+        if (pid < 0) {
+            perror("fork failed");
+            return;
+        }
         if (pid == 0) {
             if (cmd->input_file || cmd->output_file) {
                 handleRedirection(cmd);
             }
-            
-            execvp(args[cmd->start], &args[cmd->start]);
+            char *exec_args[MAXLINE/2 + 1];
+            int idx = 0;
+            for (int k = cmd->start; k <= cmd->end && args[k] != NULL; k++) {
+                exec_args[idx++] = args[k];
+            }
+            exec_args[idx] = NULL;
+            execvp(exec_args[0], exec_args);
             perror("Command execution failed");
             exit(1);
         } else {
@@ -204,7 +228,6 @@ void doCommand(char *args[], Command *cmd) {
 
 void handleRedirection(Command *cmd) {
     int fd;
-    
     if (cmd->input_file) {
         fd = open(cmd->input_file, O_RDONLY);
         if (fd < 0) {
@@ -214,7 +237,6 @@ void handleRedirection(Command *cmd) {
         dup2(fd, STDIN_FILENO);
         close(fd);
     }
-    
     if (cmd->output_file) {
         fd = open(cmd->output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (fd < 0) {
@@ -244,7 +266,6 @@ void executeHistoryCommand() {
         printf("No commands in history.\n");
         return;
     }
-    
     printf("%s\n", history[history_count - 1]);
     processLine(history[history_count - 1]);
 }
@@ -273,7 +294,7 @@ int fetchline(char **line) {
     size_t len = 0;
     ssize_t n = getline(line, &len, stdin);
     if (n > 0) {
-        (*line)[n - 1] = '\0';  // Remove newline
+        (*line)[n - 1] = '\0';
     }
     return n;
 }
@@ -289,11 +310,9 @@ int runTests() {
         "ls | wc",
         "ascii"
     };
-    
     for (int i = 0; i < 7; i++) {
         printf("* Testing: %s\n", tests[i]);
         processLine(tests[i]);
     }
-    
     return 0;
 }
