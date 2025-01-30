@@ -15,30 +15,25 @@
 #define PROMPT "osh> "
 #define HISTORY_SIZE 10
 
-#define RD 0
-#define WR 1
-
 typedef struct {
-    char *args[MAXLINE/2 + 1];  
-    int arg_count;              
-    bool background;            
-    bool pipe_exists;           
-    char *input_file;          
-    char *output_file;        
-} Command;
+    int start;          // Start index in args array
+    int end;           // End index in args array
+    bool waitFor;      // Should parent wait for this command?
+    char *input_file;  // Input redirection file
+    char *output_file; // Output redirection file
+    bool has_pipe;     // Does this command have a pipe?
+    int pipe_pos;      // Position of pipe in args
+} CommandInfo;
 
+// Function declarations
 bool equal(char *a, char *b);
 int fetchline(char **line);
-int interactiveShell();
-int runTests();
-void processLine(char *line);
-void parseCommand(char *line, Command *cmd);
-void executeCommand(Command *cmd);
+int tokenize(char *line, char *args[]);
+void parse(char *args[], int start, CommandInfo *cmd);
+void doCommand(char *args[], CommandInfo *cmd);
 void addToHistory(char *command);
 void executeHistoryCommand();
-void executePipedCommand(Command *cmd1, Command *cmd2);
-void handleRedirection(Command *cmd);
 void ascii_art();
-void cleanup_command(Command *cmd);
+void cleanup(char *args[], int count);
 
 #endif
