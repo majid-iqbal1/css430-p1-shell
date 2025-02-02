@@ -1,5 +1,5 @@
-#ifndef SHELL_H
-#define SHELL_H
+#ifndef SHELL_H_
+#define SHELL_H_
 
 #include <assert.h>  // assert
 #include <fcntl.h>   // O_RDWR, O_CREAT
