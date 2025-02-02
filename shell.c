@@ -12,13 +12,15 @@ int main(int argc, char **argv) {
     }
 }
 
+// interactive shell to process commands
 int interactiveShell() {
     bool should_run = true;
-    char *line = NULL;
+    char *line = calloc(1, MAXLINE);
     while (should_run) {
         printf(PROMPT);
         fflush(stdout);
         int n = fetchline(&line);
+        // ^D results in n == -1
         if (n == -1 || equal(line, "exit")) {
             should_run = false;
             continue;
@@ -285,11 +287,15 @@ void cleanup(char *args[], int count) {
     }
 }
 
+// return true if C-strings are equal
 bool equal(char *a, char *b) {
     if (!a || !b) return false;
     return strcmp(a, b) == 0;
 }
 
+// read a line from console
+// return length of line read or -1 if failed to read
+// removes the \n on the line read
 int fetchline(char **line) {
     size_t len = 0;
     ssize_t n = getline(line, &len, stdin);

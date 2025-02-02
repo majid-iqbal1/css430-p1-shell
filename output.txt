@@ -1,6 +1,0 @@
-README.md
-a.out
-output.txt
-runit.sh
-shell.c
-shell.h

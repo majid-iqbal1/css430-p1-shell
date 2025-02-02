@@ -15,10 +15,8 @@
 #define PROMPT "osh> "
 #define HISTORY_SIZE 10
 
-// Global args array for commands
 extern char *args[MAXLINE/2 + 1];
 
-// Command structure for storing command information
 typedef struct {
     int start;
     int end;
@@ -32,16 +30,12 @@ typedef struct {
     int pipe_end;
 } Command;
 
-
-// Core functions
-int main(int argc, char **argv);
 bool equal(char *a, char *b);
 int fetchline(char **line);
 int interactiveShell();
 int runTests();
-
-// Command processing
 void processLine(char *line);
+int main(int argc, char **argv);
 int tokenize(char *line, char *args[]);
 int parse(char *args[], int start, Command *cmd);
 void doCommand(char *args[], Command *cmd);
@@ -49,11 +43,9 @@ void executeCommand(Command *cmd);
 void handleRedirection(Command *cmd);
 void cleanup(char *args[], int count);
 
-// History feature
 void addToHistory(char *command);
 void executeHistoryCommand();
 
-// Easter egg
 void ascii_art();
 
 #endif

@@ -1,7 +1,0 @@
-README.md
-a.out
-junk.txt
-output.txt
-runit.sh
-shell.c
-shell.h
